@@ -1,6 +1,7 @@
 
 import os.path
 from datetime import datetime
+import time
 
 
 from MessageHandler import Tokenizer
@@ -35,18 +36,27 @@ def parse_and_save(src, out_path):
     date = datetime.strptime(str(os.path.basename(src).split("-")[0][1:]), "%d%m%y")
     date = datetime.strftime(date, "%Y%m%d")
 
+    get_name = lambda x: os.path.join(out_path, "%s-%s.csv" % (x.decode().strip(), date))
+
     to_save = {}
     record = {}
     counter = 0
+    reset = 0
+    start = time.clock()
     with Tokenizer(src) as reader:
         while True:
             msg = parse_message(reader.get_message())
-            # counter += 1
+            counter += 1
+            reset += 1
             # if counter > 1E5:
             #     break
 
+            if isinstance(msg, Message.SystemEvent) and msg.event == b'C':
+                break
+
             if isinstance(msg, Message.StockDirectory):
-                to_save[msg.stock] = open("%s-%s.csv" % (msg.stock.decode().strip(), date), "w")
+                with open(get_name(msg.stock), "w") as f:
+                    pass
             else:
                 if isinstance(msg, Message.OrderAdd) or isinstance(msg, Message.OrderAddMpid):
                     record[msg.ref] = msg.stock
@@ -61,11 +71,17 @@ def parse_and_save(src, out_path):
                     stock = record[msg.ref]
                 else:
                     stock = msg.stock
-                to_save[stock].write(",".join([str(x) for x in tmp]) + "\n")
+                if stock in to_save:
+                    to_save[stock].append(",".join([str(x) for x in tmp]))
+                else:
+                    to_save[stock] = [",".join([str(x) for x in tmp])]
 
-            print("%d\r" % counter, end="", flush=True)
-            if isinstance(msg, Message.SystemEvent) and msg.event == b'C':
-                break
+            if reset >= 2E5:
+                delta = time.clock() - start
+                print("\r%d (elapsed: %dmin / rate: %d)" % (counter, delta / 60, counter / delta), end="", flush=True)
+                for k, v in to_save.items():
+                    with open(get_name(k), "a") as f:
+                        f.write("\n".join(v) + "\n")
+                to_save.clear()
+                reset = 0
 
-    for f in to_save.values():
-        f.close()
