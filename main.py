@@ -1,6 +1,5 @@
 
-from MessageHandler import Tokenizer
+from utils.parse import parse_and_save
 
-with Tokenizer("data/S020117-v50-bx.txt.gz") as reader:
-    for i in range(20):
-        print(reader.get_message())
+parse_and_save("data/S020117-v50.txt.gz", "output")
+
