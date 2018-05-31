@@ -1,7 +1,5 @@
 
-# from sortedcontainers import SortedList
 from collections import deque
-from market.order import Order
 
 
 def ask_comparator(x: float, y: float):
@@ -10,6 +8,15 @@ def ask_comparator(x: float, y: float):
 
 def bid_comparator(x: float, y: float):
     return x < y
+
+
+class Order:
+    def __init__(self, ref, price, shares):
+        self.ref = ref
+        self.price = price
+        self.shares = shares
+        self.valid = True
+        self.generated = True  # the order is user generated or from historical data
 
 
 class Level:
@@ -69,9 +76,9 @@ class Book:
 
     def execute_order(self, ref, shares):
         self.update_book()
-        if self.levels[0].first().ref != ref:
-            raise RuntimeError("Order execution error - mismatch reference")
         tmp = self.pool[ref]
+        if self.later_than(tmp.price, self.ref_price):
+            raise RuntimeError("Order execution error - execution not on the best level")
         if tmp.shares < shares:
             raise RuntimeError("Order execution error - executed more than available")
         tmp.shares -= shares
@@ -80,14 +87,7 @@ class Book:
             del self.pool[ref]
 
     def execute_order_with_price(self, ref, price, shares):
-        # this is the same as order cancellation
-        tmp = self.pool[ref]
-        if not tmp.valid or tmp.shares < shares:
-            raise RuntimeError("Order execution error - order specs mismatch")
-        tmp.shares -= shares
-        if tmp.shares == 0:
-            tmp.valid = False
-        print("order executed at %d with original display %d" % (price, self.pool[ref].price))
+        self.execute_order(ref, shares)
 
     def cancel_order(self, ref, shares):
         tmp = self.pool[ref]
