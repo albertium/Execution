@@ -1,13 +1,8 @@
-
+"""
+OrderBook implementation using SortedList
+"""
+from sortedcontainers import SortedList
 from collections import deque
-
-
-def ask_comparator(x: float, y: float):
-    return x > y
-
-
-def bid_comparator(x: float, y: float):
-    return x < y
 
 
 class Order:
@@ -37,14 +32,23 @@ class Level:
         return len(self.queue) == 0
 
 
+class Wrapper:
+    def __init__(self, price):
+        self.price = price
+
+
+ask_comparators = [lambda x: x.price, lambda x, y: x > y]
+bid_comparators = [lambda x: -x.price, lambda x, y: x < y]
+
+
 class Book:
     """
     linear in the first nth element and heap afterward
     For order modification functions, we assume that the ref has been checked in the whole book level
     """
-    def __init__(self, later_than=ask_comparator):
-        self.later_than = later_than
-        self.levels = deque()
+    def __init__(self, comparators=ask_comparators):
+        self.levels = SortedList(key=comparators[0])
+        self.later_than = comparators[1]
         self.pool = {}  # record orders for update or deletion
         self.ref_price = None  # best bid or offer
 
@@ -55,24 +59,17 @@ class Book:
         while not self.levels[0].first().valid:
             self.levels[0].popleft()
             if self.levels[0].is_empty():
-                self.levels.popleft()
+                self.levels.pop(0)
         self.ref_price = self.levels[0].price
 
     def add_order(self, ref, price: float, shares):
         order = Order(ref, price, shares)
         self.pool[ref] = order
-        if len(self.levels) == 0:  # corner case
-            self.levels.append(Level(price, order))
-            return
-
-        for idx, level in enumerate(self.levels):
-            if not self.later_than(price, level.price):
-                if price == level.price:
-                    level.append(order)
-                else:
-                    self.levels.insert(idx, Level(price, order))
-                break
-        self.levels.append(Level(price, order))  # farthest from the market
+        try:
+            level = self.levels.index(Wrapper(price))
+            level.append(order)
+        except ValueError:
+            self.levels.add(Level(price, order))
 
     def execute_order(self, ref, shares):
         self.update_book()
@@ -84,22 +81,25 @@ class Book:
         tmp.shares -= shares
         if tmp.shares == 0:
             tmp.valid = False
-            del self.pool[ref]
+            self.pool.pop(ref, None)
 
     def execute_order_with_price(self, ref, price, shares):
         self.execute_order(ref, shares)
 
     def cancel_order(self, ref, shares):
         tmp = self.pool[ref]
+
         if not tmp.valid or tmp.shares < shares:
             raise RuntimeError("Order cancellation error - order specs mismatch")
         tmp.shares -= shares
         if tmp.shares == 0:
             print("cancel to 0\n")
             tmp.valid = False
+            self.pool.pop(ref, None)
 
     def delete_order(self, ref):
         self.pool[ref].valid = False
+        self.pool.pop(ref)
 
     def replace_order(self, ref, new_ref, price, shares):
         self.delete_order(ref)
@@ -108,8 +108,8 @@ class Book:
 
 class OrderBook:
     def __init__(self):
-        self.ask_book = Book(ask_comparator)
-        self.bid_book = Book(bid_comparator)
+        self.ask_book = Book(ask_comparators)
+        self.bid_book = Book(bid_comparators)
 
     def add_bid(self, ref, price, shares):
         self.bid_book.add_order(ref, price, shares)

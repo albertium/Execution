@@ -38,4 +38,11 @@ def check_book(filename):
 
             if counter % 1000 == 0:
                 print("\rElapsed: %ds / %d" % (time.clock() - start, counter), end='', flush=True)
-    print("\rTotal: %ds / %d" % (time.clock() - start, counter), end='', flush=True)
+    print("\rTotal: %ds / %d\n" % (time.clock() - start, counter), end='', flush=True)
+    print("%d %d" % (len(order_book.ask_book.pool), len(order_book.bid_book.pool)))
+
+    count = 0
+    for level in order_book.ask_book.levels:
+        for order in level.queue:
+            count += order.valid
+    print("\n%d" % count)
