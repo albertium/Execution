@@ -45,4 +45,4 @@ def check_book(filename):
     for level in order_book.ask_book.levels:
         for order in level.queue:
             count += order.valid
-    print("\n%d" % count)
+    print("\n%d\n" % count)
