@@ -2,7 +2,7 @@
 OrderBook implementation using SortedList
 """
 from sortedcontainers import SortedList
-from collections import deque
+from collections import deque, OrderedDict
 
 
 class Order:
@@ -35,14 +35,8 @@ class Level:
         return self.queue.__iter__()
 
 
-class Wrapper:
-    def __init__(self):
-        self.price = None
-wrapper = Wrapper()
-
-
-ask_comparators = [lambda x: x.price, lambda x, y: x > y]
-bid_comparators = [lambda x: -x.price, lambda x, y: x < y]
+ask_comparators = [lambda x: x, lambda x, y: x > y]
+bid_comparators = [lambda x: -x, lambda x, y: x < y]
 
 
 class Book:
@@ -53,7 +47,8 @@ class Book:
         self.levels = SortedList(key=comparators[0])
         self.later_than = comparators[1]
         self.pool = {}  # record orders for update or deletion
-        self.ref_price = None  # best bid or offer
+        self.level_pool = {}  # store leveals
+        self.volumes = OrderedDict()
 
     def __contains__(self, item):
         return item in self.pool
@@ -61,31 +56,52 @@ class Book:
     def get_foremost_order(self):
         return self.levels[0].first()
 
+    def get_ref_price(self):
+        # reference price
+        return self.levels[0]
+
+    def get_quote_volume(self):
+        return self.volumes[self.get_ref_price()]
+
+    def update_volume(self, price, shares):
+        if price in self.volumes:
+            tmp = self.volumes[price]
+            del self.volumes[price]
+            self.volumes[price] = tmp + shares
+        else:
+            self.volumes[price] = shares
+        if len(self.volumes) > 100000:
+            self.volumes.popitem(last=False)
+
+    def update_book(self):
+        while len(self.levels) > 0:
+            level = self.level_pool[self.levels[0]]  # get first level
+            while len(level) > 0 and not level[0].valid:
+                level.popleft()
+            if len(level) > 0:
+                break
+            else:
+                del self.level_pool[self.levels[0]]
+                self.levels.pop(0)
+
     def remove(self, ref):
         tmp = self.pool.pop(ref)
         tmp.valid = False
 
-    def update_book(self):
-        while not self.get_foremost_order().valid:
-            self.levels[0].popleft()
-            if self.levels[0].is_empty():
-                self.levels.pop(0)
-        self.ref_price = self.levels[0].price
-
     def add_order(self, ref, price: float, shares):
         order = Order(ref, price, shares)
         self.pool[ref] = order
-        try:
-            wrapper.price = price
-            level = self.levels.index(wrapper)
-            level.append(order)
-        except ValueError:  # when level above not found and return None
-            self.levels.add(Level(price, order))
+        if price not in self.level_pool:
+            self.level_pool[price] = deque([order])
+            self.levels.add(price)
+        else:
+            self.level_pool[price].append(order)
+        self.update_volume(price, shares)
 
     def execute_order(self, ref, shares):
         self.update_book()
         tmp = self.pool[ref]
-        if self.later_than(tmp.price, self.ref_price):
+        if self.later_than(tmp.price, self.get_ref_price()):
             raise RuntimeError("Order execution error - execution not on the best level")
         if tmp.shares < shares:
             raise RuntimeError("Order execution error - executed more than available")
@@ -94,18 +110,21 @@ class Book:
         else:
             self.remove(ref)
         self.update_book()
+        self.update_volume(tmp.price, -shares)
 
     def execute_order_with_price(self, ref, price, shares):
         self.execute_order(ref, shares)
 
     def cancel_order(self, ref, shares):
         tmp = self.pool[ref]
-
         if not tmp.valid or tmp.shares < shares:
             raise RuntimeError("Order cancellation error - order specs mismatch")
         tmp.shares -= shares
+        self.update_volume(tmp.price, -shares)
 
     def delete_order(self, ref):
+        tmp = self.pool[ref]
+        self.update_volume(tmp.price, -tmp.shares)
         self.remove(ref)
         self.update_book()
 
@@ -141,7 +160,7 @@ class SimulationBook(Book):
         tmp = self.pool[ref]
         # if the target order is not on the first level or execution is on the original foremost order
         # then we should walk the book starting from the foremost order
-        if self.later_than(tmp.price, self.ref_price) or ref == self.get_foremost_real_order().ref:
+        if self.later_than(tmp.price, self.get_ref_price()) or ref == self.get_foremost_real_order().ref:
             while shares > 0:
                 tmp = self.get_foremost_order()
                 if tmp.shares <= shares:
@@ -153,7 +172,7 @@ class SimulationBook(Book):
                     tmp.shares -= shares
                     shares = 0
                 self.update_book()
-            self.ref_pool.pop(ref, None)  # it's possible that ref is a ref_pool order
+            self.ref_pool.pop(ref, None)  # it's possible that ref is a ref_pool order, so remove it after it's used
         else:
             tmp.shares -= shares
             if tmp.shares == 0:
@@ -165,6 +184,9 @@ class OrderBook:
     def __init__(self):
         self.ask_book = Book(ask_comparators)
         self.bid_book = Book(bid_comparators)
+
+    def get_spread(self):
+        return self.ask_book.get_ref_price() - self.bid_book.get_ref_price()
 
     def add_bid(self, ref, price, shares):
         self.bid_book.add_order(ref, price, shares)
