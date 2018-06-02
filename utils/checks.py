@@ -44,15 +44,14 @@ def check_book(filename):
 
     count = 0
     book = order_book.ask_book
-    # book = order_book.bid_book
+    book = order_book.bid_book
     for price, level in book.level_pool.items():
         for order in level:
             count += order.valid
-    print("\n%d\n" % count)
-    print(len(book.volumes))
-    for price in book.levels:
-        vol = 0
-        for order in book.level_pool[price]:
-            if order.valid:
-                vol += order.shares
-        print(price, book.volumes[price], vol)
+    print("\n%d" % count)
+    print("# volume level: ", len(book.volumes))
+    vol = 0
+    for order in book.level_pool[price]:
+        if order.valid:
+            vol += order.shares
+    print(price, book.volumes[price], vol)

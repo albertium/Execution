@@ -53,25 +53,23 @@ class Book:
     def __contains__(self, item):
         return item in self.pool
 
-    def get_foremost_order(self):
-        return self.levels[0].first()
+    def get_front_order(self):
+        return self.level_pool[self.levels[0]][0]
 
     def get_ref_price(self):
         # reference price
         return self.levels[0]
 
     def get_quote_volume(self):
-        return self.volumes[self.get_ref_price()]
+        return self.volumes[self.levels[0]]
 
     def update_volume(self, price, shares):
         if price in self.volumes:
-            tmp = self.volumes[price]
-            del self.volumes[price]
-            self.volumes[price] = tmp + shares
+            self.volumes[price] += shares
         else:
             self.volumes[price] = shares
-        if len(self.volumes) > 100000:
-            self.volumes.popitem(last=False)
+        if len(self.volumes) > 20000:
+            raise RuntimeError("Too many volume levels")
 
     def update_book(self):
         while len(self.levels) > 0:
@@ -144,12 +142,13 @@ class SimulationBook(Book):
     def __contains__(self, item):
         return item in self.pool or item in self.ref_pool
 
-    def get_foremost_real_order(self):
+    def get_front_real_order(self):
         """
         the foremost real (not generated) order
         every order related function should call update_book at the end. We shouldn't need to do it again here
         """
-        for level in self.levels:
+        for price in self.levels:
+            level = self.level_pool[price]
             for order in level:
                 if order.real:
                     return order
@@ -158,18 +157,20 @@ class SimulationBook(Book):
     def execute_order(self, ref, shares):
         self.update_book()
         tmp = self.pool[ref]
-        # if the target order is not on the first level or execution is on the original foremost order
-        # then we should walk the book starting from the foremost order
-        if self.later_than(tmp.price, self.get_ref_price()) or ref == self.get_foremost_real_order().ref:
+        # if the target order is not on the first level or execution is on the real front order
+        # then we should walk the book starting from the front order
+        if self.later_than(tmp.price, self.get_ref_price()) or ref == self.get_front_real_order().ref:
             while shares > 0:
-                tmp = self.get_foremost_order()
+                tmp = self.get_front_order()
                 if tmp.shares <= shares:
                     self.remove(tmp.ref)
                     shares -= tmp.shares
-                    if tmp.ref != ref:
-                        self.ref_pool[tmp.ref] = None  # use dcit instead of set because it's faster
+                    self.update_volume(tmp.price, -tmp.shares)
+                    if tmp.ref != ref:  # the order would not be execute were it not for algo orders, should save ref no
+                        self.ref_pool[tmp.ref] = None  # use dict instead of set because it's faster
                 else:
                     tmp.shares -= shares
+                    self.update_volume(tmp.price, -shares)
                     shares = 0
                 self.update_book()
             self.ref_pool.pop(ref, None)  # it's possible that ref is a ref_pool order, so remove it after it's used
@@ -177,13 +178,14 @@ class SimulationBook(Book):
             tmp.shares -= shares
             if tmp.shares == 0:
                 self.remove(ref)
-        self.update_book()
+            self.update_book()
+            self.update_volume(tmp.price, -shares)
 
 
 class OrderBook:
-    def __init__(self):
-        self.ask_book = Book(ask_comparators)
-        self.bid_book = Book(bid_comparators)
+    def __init__(self, book_type=Book):
+        self.ask_book = book_type(ask_comparators)
+        self.bid_book = book_type(bid_comparators)
 
     def get_spread(self):
         return self.ask_book.get_ref_price() - self.bid_book.get_ref_price()
@@ -233,10 +235,3 @@ class OrderBook:
             self.bid_book.replace_order(ref, new_ref, price, shares)
         else:
             raise RuntimeError("Replacement error - ref not exists")
-
-
-class SimulationOrderBook(OrderBook):
-    def __init__(self):
-        super(SimulationOrderBook, self).__init__()
-        self.ask_book = SimulationBook(ask_comparators)
-        self.bid_book = SimulationBook(bid_comparators)
