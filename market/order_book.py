@@ -5,6 +5,25 @@ from sortedcontainers import SortedList
 from collections import deque, OrderedDict
 
 
+class FormattedMessage:
+    def __init__(self, raw, real=True):
+        self.type = raw[0]
+        self.ref = int(raw[2])
+        if self.type == 'A':
+            self.type += 'B' if raw[4] == '1' else 'A'
+            self.price = int(raw[5])
+            self.shares = int(raw[6])
+        elif self.type == 'E' or self.type == 'X':
+            self.shares = int(raw[6])
+        elif self.type == 'C':
+            self.price = int(raw[5])
+            self.shares = int(raw[6])
+        elif self.type == 'U':
+            self.new_ref = int(raw[4])
+            self.price = int(raw[5])
+            self.shares = int(raw[6])
+
+
 class Order:
     def __init__(self, ref, price, shares):
         self.ref = ref
@@ -189,6 +208,28 @@ class OrderBook:
 
     def get_spread(self):
         return self.ask_book.get_ref_price() - self.bid_book.get_ref_price()
+
+    def get_mid_price(self):
+        return (self.ask_book.get_ref_price() + self.bid_book.get_ref_price()) / 2
+
+    def process_message(self, row):
+        order_type = row[0]
+        ref = int(row[2])
+        if order_type == 'A':  # add order
+            if row[4] == '1':  # row[4] is buy/sell indicator
+                self.add_bid(ref, int(row[5]), int(row[6]))
+            else:
+                self.add_ask(ref, int(row[5]), int(row[6]))
+        elif order_type == 'E':
+            self.execute_order(ref, int(row[6]))
+        elif order_type == 'C':
+            self.execute_order_with_price(ref, int(row[5]), int(row[6]))
+        elif order_type == 'X':  # cancel
+            self.cancel_order(ref, int(row[6]))
+        elif order_type == 'D':  # delete
+            self.delete_order(ref)
+        elif order_type == 'U':  # update
+            self.replace_order(ref, int(row[4]), int(row[5]), int(row[6]))
 
     def add_bid(self, ref, price, shares):
         self.bid_book.add_order(ref, price, shares)
