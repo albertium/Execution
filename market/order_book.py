@@ -6,31 +6,33 @@ from collections import deque, OrderedDict
 
 
 class FormattedMessage:
-    def __init__(self, raw, real=True):
-        self.type = raw[0]
-        self.ref = int(raw[2])
-        if self.type == 'A':
-            self.type += 'B' if raw[4] == '1' else 'A'
-            self.price = int(raw[5])
-            self.shares = int(raw[6])
-        elif self.type == 'E' or self.type == 'X':
-            self.shares = int(raw[6])
-        elif self.type == 'C':
-            self.price = int(raw[5])
-            self.shares = int(raw[6])
-        elif self.type == 'U':
-            self.new_ref = int(raw[4])
-            self.price = int(raw[5])
-            self.shares = int(raw[6])
+    def __init__(self, raw=None):
+        if raw is not None:
+            self.type = raw[0]
+            self.ref = int(raw[2])
+            self.timestamp = int(raw[3])
+            if self.type == 'A':
+                self.type += 'B' if raw[4] == '1' else 'A'
+                self.price = int(raw[5])
+                self.shares = int(raw[6])
+            elif self.type == 'E' or self.type == 'X':
+                self.shares = int(raw[6])
+            elif self.type == 'C':
+                self.price = int(raw[5])
+                self.shares = int(raw[6])
+            elif self.type == 'U':
+                self.new_ref = int(raw[4])
+                self.price = int(raw[5])
+                self.shares = int(raw[6])
 
 
 class Order:
-    def __init__(self, ref, price, shares):
+    def __init__(self, ref, price, shares, real=True):
         self.ref = ref
         self.price = price
         self.shares = shares
         self.valid = True
-        self.real = True  # the order is user generated or real data
+        self.real = real  # the order is user generated or real data
 
 
 class Level:
@@ -72,7 +74,7 @@ class Book:
     def __contains__(self, item):
         return item in self.pool
 
-    def get_front_order(self):
+    def get_front_order(self) -> Order:
         return self.level_pool[self.levels[0]][0]
 
     def get_ref_price(self):
@@ -105,8 +107,8 @@ class Book:
         tmp = self.pool.pop(ref)
         tmp.valid = False
 
-    def add_order(self, ref, price: float, shares):
-        order = Order(ref, price, shares)
+    def add_order(self, ref, price: float, shares, real=True):
+        order = Order(ref, price, shares, real)
         self.pool[ref] = order
         if price not in self.level_pool:
             self.level_pool[price] = deque([order])
@@ -173,12 +175,17 @@ class SimulationBook(Book):
                     return order
         return None
 
-    def execute_order(self, ref, shares):
+    def execute_order(self, ref, shares, sign=1):
+        # we assume that when there is algo market order, there will be NO algo limit order on the same book
+        # we also assume we will never run out of limit orders
         self.update_book()
-        tmp = self.pool[ref]
-        # if the target order is not on the first level or execution is on the real front order
+        # if algo market order or the target order is not on the first level or execution is on the real front order
         # then we should walk the book starting from the front order
-        if self.later_than(tmp.price, self.get_ref_price()) or ref == self.get_front_real_order().ref:
+        if ref < 0 \
+                or self.later_than(self.pool[ref].price, self.get_ref_price()) \
+                or ref == self.get_front_real_order().ref:
+            executed = []
+            prev_shares = shares
             while shares > 0:
                 tmp = self.get_front_order()
                 if tmp.shares <= shares:
@@ -192,13 +199,23 @@ class SimulationBook(Book):
                     self.update_volume(tmp.price, -shares)
                     shares = 0
                 self.update_book()
+                if ref < 0:  # report algo order execution
+                    executed.append([tmp.price, sign * (prev_shares - shares)])
+                elif not tmp.real:
+                    executed.append([tmp.price, -sign * (prev_shares - shares)])
+                prev_shares = shares
             self.ref_pool.pop(ref, None)  # it's possible that ref is a ref_pool order, so remove it after it's used
+            return executed
         else:
+            tmp = self.pool[ref]
             tmp.shares -= shares
+            if tmp.shares < 0:
+                raise RuntimeError("Special execution handling failed")
             if tmp.shares == 0:
                 self.remove(ref)
             self.update_book()
             self.update_volume(tmp.price, -shares)
+            return []
 
 
 class OrderBook:
@@ -212,36 +229,45 @@ class OrderBook:
     def get_mid_price(self):
         return (self.ask_book.get_ref_price() + self.bid_book.get_ref_price()) / 2
 
-    def process_message(self, row):
-        order_type = row[0]
-        ref = int(row[2])
-        if order_type == 'A':  # add order
-            if row[4] == '1':  # row[4] is buy/sell indicator
-                self.add_bid(ref, int(row[5]), int(row[6]))
-            else:
-                self.add_ask(ref, int(row[5]), int(row[6]))
-        elif order_type == 'E':
-            self.execute_order(ref, int(row[6]))
-        elif order_type == 'C':
-            self.execute_order_with_price(ref, int(row[5]), int(row[6]))
-        elif order_type == 'X':  # cancel
-            self.cancel_order(ref, int(row[6]))
-        elif order_type == 'D':  # delete
-            self.delete_order(ref)
-        elif order_type == 'U':  # update
-            self.replace_order(ref, int(row[4]), int(row[5]), int(row[6]))
+    def process_message(self, msg: FormattedMessage):
+        price, shares = None, None
+        if msg.type == 'AA':  # add Ask
+            self.add_ask(msg.ref, msg.price, msg.shares)
+        if msg.type == 'AA2':  # add algo generated ask
+            self.add_ask(msg.ref, msg.price, msg.shares, False)
+        elif msg.type == 'AB':  # ask bid
+            self.add_bid(msg.ref, msg.price, msg.shares)
+        elif msg.type == 'AB2':  # ask algo generated bid
+            self.add_bid(msg.ref, msg.price, msg.shares, False)
+        elif msg.type == 'E':
+            price, shares = self.execute_order(msg.ref, msg.shares)
+        elif msg.type == 'C':
+            price, shares = self.execute_order_with_price(msg.ref, msg.price, msg.shares)
+        elif msg.type == 'X':  # cancel
+            self.cancel_order(msg.ref, msg.shares)
+        elif msg.type == 'D':  # delete
+            self.delete_order(msg.ref)
+        elif msg.type == 'U':  # update
+            self.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+        return price, shares
 
-    def add_bid(self, ref, price, shares):
-        self.bid_book.add_order(ref, price, shares)
+    def add_bid(self, ref, price, shares, real=True):
+        if price < self.ask_book.get_ref_price():
+            self.bid_book.add_order(ref, price, shares, real)
+        else:
+            self.ask_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
 
-    def add_ask(self, ref, price, shares):
-        self.ask_book.add_order(ref, price, shares)
+    def add_ask(self, ref, price, shares, real=True):
+        if price > self.bid_book.get_ref_price():
+            self.ask_book.add_order(ref, price, shares, real)
+        else:
+            self.bid_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
 
     def execute_order(self, ref, shares):
-        if ref in self.ask_book:
-            self.ask_book.execute_order(ref, shares)
-        elif ref in self.bid_book:
-            self.bid_book.execute_order(ref, shares)
+        if ref in self.ask_book or ref == -1:
+            return self.ask_book.execute_order(ref, shares)
+        elif ref in self.bid_book or ref == -2:
+            return self.bid_book.execute_order(ref, shares, -1)
         else:
             raise RuntimeError("Execution error - ref not exists")
 

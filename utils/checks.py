@@ -1,7 +1,7 @@
 
 import csv
 import time
-from market.order_book import OrderBook
+from market.order_book import OrderBook, FormattedMessage
 import numpy as np
 
 
@@ -15,7 +15,7 @@ def check_book(filename):
         counter = 0
         for row in reader:
             counter += 1
-            order_book.process_message(row)
+            order_book.process_message(FormattedMessage(row))
             if counter % 1000 == 0:
                 print("\rElapsed: %ds / %d" % (time.clock() - start, counter), end='', flush=True)
     print("\rTotal: %ds / %d\n" % (time.clock() - start, counter), end='', flush=True)
