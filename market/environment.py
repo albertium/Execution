@@ -2,23 +2,25 @@
 import csv
 from collections import deque, namedtuple
 import numpy as np
-from market.order_book import OrderBook, SimulationBook, FormattedMessage
+from market.order_book import OrderBook, FormattedMessage
 from utils.feature import FeatureDelta, RollingMean
 
 
 class Feed:
     def __init__(self, filename, delay_lb=1500, delay_ub=3000):
         self.messages = []
-        self.pointer = -1
+        self.pointer = 0
         self.open_orders = deque()
         self.last_delayed_time = 0  # to simulate delayed transmission
         self.ref = 0
         self.delay_lb = delay_lb
         self.delay_ub = delay_ub
+        print("Feed: reading data")
         with open(filename, "r") as f:
             reader = csv.reader(f)
             for row in reader:
                 self.messages.append(FormattedMessage(row))
+        print("Feed: finish parsing message data")
         self.size = len(self.messages)
 
     def has_next(self):
@@ -70,12 +72,13 @@ class Feed:
 
 
 class SmartOrderRouter:
-    def __init__(self, feed: Feed, order_book: OrderBook, spread: RollingMean, target_size, alpha):
+    def __init__(self, feed: Feed, order_book: OrderBook, env, target_size, alpha):
         """
         feed is for executing orders while order_book is only for info
         """
         self.feed = feed
         self.order_book = order_book
+        self.env = env
         self.ask_profile = {"prev_action": None, "remaining": 0, "refs": [], "ask": True}
         self.bid_profile = {"prev_action": None, "remaining": 0, "refs": [], "ask": False}
         self.action_map = {0: (1, 1), 1: (2, 2), 2: (3, 3), 3: (4, 4), 4: (5, 5), 5: (1, 3), 6: (3, 1),
@@ -83,7 +86,6 @@ class SmartOrderRouter:
         self.position = 0
         self.target_size = target_size  # size to maintain on each book
         self.alpha = alpha  # liquidation percentage
-        self.spread = spread  # rolling spread
 
     def execute(self, action):
         if action == 9:
@@ -103,11 +105,11 @@ class SmartOrderRouter:
                 self.feed.delete_order(ref)
                 profile["remaining"] = 0
         if profile["ask"]:
-            price = max(self.order_book.get_mid_price() + self.spread.get(),
-                        self.order_book.ask_book.get_ref_price())  # not to place inside the market
+            price = max(self.order_book.get_mid_price() + self.env.rspd.get(),
+                        self.order_book.ask_book.get_quote())  # not to place inside the market
         else:
-            price = min(self.order_book.get_mid_price() - self.spread.get(),
-                        self.order_book.bid_book.get_ref_price())  # not to place inside the market
+            price = min(self.order_book.get_mid_price() - self.env.rspd.get(),
+                        self.order_book.bid_book.get_quote())  # not to place inside the market
         self.feed.add_order(price, self.target_size - profile["remaining"], profile["ask"])
         profile["prev_action"] = action
 
@@ -115,20 +117,23 @@ class SmartOrderRouter:
 class Simulation:
     def __init__(self, agent, filename, config):
         self.feed = Feed(filename)
-        self.order_book = OrderBook(SimulationBook)  # SimulationBook allow algo generated orders
+        self.order_book = OrderBook()  # SimulationBook allow algo generated orders
         self.agent = agent
         self.config = config
         self.default_features = ["MSPD50"]
+        self.open_buys, self.open_sells = deque(), deque()
+        self.position = 0
+        self.pnl = 0
         self.build_book()
         self.init_features()
         # rspd only exists after init_features()
-        self.SOR = SmartOrderRouter(self.feed, self.order_book, self.rspd, config.target_size, config.liquidation_rate)
+        self.SOR = SmartOrderRouter(self.feed, self.order_book, self, config.target_size, config.liquidation_rate)
 
     def build_book(self):
         """
         At the beginning of the day, Nasdaq will populate the whole book by sending "add" message
         """
-        while self.feed.has_next() and self.feed.peek().type == 'A':
+        while self.feed.has_next() and self.feed.peek().type[0] == 'A':
             self.order_book.process_message(self.feed.next())
 
     def init_features(self):
@@ -171,5 +176,26 @@ class Simulation:
 
     def step(self, action):
         self.SOR.execute(action)
-        self.order_book.process_message(self.feed.next())
-        return None, None
+        buy, executed = self.order_book.process_message(self.feed.next())
+
+        # netting
+        if buy is not None:
+            if buy:
+                self.open_buys.extend(executed)
+            else:
+                self.open_sells.extend(executed)
+            shares_to_add = 0
+            while len(self.open_buys) > 0 and len(self.open_sells) > 0:
+                if self.open_buys[0][1] >= self.open_sells[0][1]:
+                    tmp, remain = self.open_sells.popleft(), self.open_buys[0]
+                    self.pnl += tmp[1] * (tmp[0] - remain[0])
+                else:
+                    tmp, remain = self.open_buys.popleft(), self.open_sells[0]
+                    self.pnl += tmp[1] * (remain[0] - tmp[0])
+                shares_to_add += tmp[1]
+                remain[1] -= tmp[1]
+                if self.open_buys[0][1] == 0:  # >= condition is on open_buys side
+                    self.open_buys.popleft()
+            self.position += shares_to_add if buy else -shares_to_add
+
+        return self.update_states(), 0
