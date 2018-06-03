@@ -28,9 +28,4 @@ def check_book(filename):
         for order in level:
             count += order.valid
     print("\n%d" % count)
-    print("# volume level: ", len(book.volumes))
-    vol = 0
-    for order in book.level_pool[book.levels[0]]:
-        if order.valid:
-            vol += order.shares
-    print(book.levels[0], book.volumes[book.levels[0]], vol)
+    print("ask volume level: ", len(book.volumes))

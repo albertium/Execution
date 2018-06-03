@@ -4,9 +4,9 @@ from datetime import datetime
 import time
 
 
-from MessageHandler import Tokenizer
-from MessageHandler import parse_message
-import Message
+from utils.MessageHandler import Tokenizer
+from utils.MessageHandler import parse_message
+from utils import Message
 
 
 def format_message(msg):

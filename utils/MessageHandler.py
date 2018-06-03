@@ -1,6 +1,6 @@
 
 import gzip
-import Message
+from utils import Message
 
 
 class Tokenizer:

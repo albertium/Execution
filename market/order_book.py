@@ -9,21 +9,21 @@ class FormattedMessage:
     def __init__(self, raw=None):
         if raw is not None:
             self.type = raw[0]
-            self.ref = int(raw[2])
-            self.timestamp = int(raw[3])
+            self.ref = int(raw[1])
+            self.timestamp = int(raw[2])
             if self.type == 'A':
-                self.type += 'B' if raw[4] == '1' else 'A'
-                self.price = int(raw[5])
-                self.shares = int(raw[6])
+                self.type += 'B' if raw[3] == '1' else 'A'
+                self.price = int(raw[4])
+                self.shares = int(raw[5])
             elif self.type == 'E' or self.type == 'X':
-                self.shares = int(raw[6])
+                self.shares = int(raw[5])
             elif self.type == 'C':
-                self.price = int(raw[5])
-                self.shares = int(raw[6])
+                self.price = int(raw[4])
+                self.shares = int(raw[5])
             elif self.type == 'U':
-                self.new_ref = int(raw[4])
-                self.price = int(raw[5])
-                self.shares = int(raw[6])
+                self.new_ref = int(raw[3])
+                self.price = int(raw[4])
+                self.shares = int(raw[5])
 
     def __str__(self):
         return self.__repr__()
