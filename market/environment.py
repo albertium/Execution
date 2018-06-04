@@ -12,15 +12,15 @@ class Feed:
         self.pointer = 0
         self.open_orders = deque()
         self.last_delayed_time = 0  # to simulate delayed transmission
-        self.ref = 0
+        self.ref = -1
         self.delay_lb = delay_lb
         self.delay_ub = delay_ub
-        print("Feed: reading data")
+        print("Feed: reading data", end='', flush=True)
         with open(filename, "r") as f:
             reader = csv.reader(f)
             for row in reader:
                 self.messages.append(FormattedMessage(row))
-        print("Feed: finish parsing message data")
+        print("\rFeed: finish parsing message data")
         self.size = len(self.messages)
 
     def has_next(self):
@@ -40,7 +40,7 @@ class Feed:
     def add_order(self, price, shares, ask=True):
         last_transmission_time = self.messages[self.pointer - 1].timestamp
         self.last_delayed_time = max(self.last_delayed_time,
-                                     last_transmission_time + np.random.uniform(self.delay_lb, self.delay_ub))
+                                     last_transmission_time + np.random.exponential(self.delay_lb))
         msg = FormattedMessage()
         msg.type = 'AA2' if ask else 'AB2'
         msg.ref = self.ref
@@ -49,6 +49,7 @@ class Feed:
         msg.shares = shares
         self.open_orders.append(msg)
         self.ref -= 1
+        return self.ref + 1
 
     def delete_order(self, ref):
         last_transmission_time = self.messages[self.pointer - 1].timestamp
@@ -71,6 +72,14 @@ class Feed:
         self.open_orders.append(msg)
 
 
+class Profile:
+    def __init__(self, ask):
+        self.prev_action = None
+        self.submitted = 0
+        self.refs = []
+        self.ask = ask
+
+
 class SmartOrderRouter:
     def __init__(self, feed: Feed, order_book: OrderBook, env, target_size, alpha):
         """
@@ -79,17 +88,23 @@ class SmartOrderRouter:
         self.feed = feed
         self.order_book = order_book
         self.env = env
-        self.ask_profile = {"prev_action": None, "remaining": 0, "refs": [], "ask": True}
-        self.bid_profile = {"prev_action": None, "remaining": 0, "refs": [], "ask": False}
+        self.ask_profile = Profile(ask=True)
+        self.bid_profile = Profile(ask=False)
         self.action_map = {0: (1, 1), 1: (2, 2), 2: (3, 3), 3: (4, 4), 4: (5, 5), 5: (1, 3), 6: (3, 1),
                            7: (2, 5), 8: (5, 2)}
         self.position = 0
         self.target_size = target_size  # size to maintain on each book
         self.alpha = alpha  # liquidation percentage
 
+    def update_submission(self, buy, shares):
+        if buy:
+            self.bid_profile.submitted -= shares
+        else:
+            self.ask_profile.submitted -= shares
+
     def execute(self, action):
         if action == 9:
-            refs = self.bid_profile["refs"] if self.position > 0 else self.ask_profile["refs"]
+            refs = self.bid_profile.refs if self.position > 0 else self.ask_profile.refs
             for ref in refs:
                 self.feed.delete_order(ref)
             # if position > 0, wee need to sell and execute in the BID book. Vice versa
@@ -98,25 +113,28 @@ class SmartOrderRouter:
             self.execute_single_book(self.action_map[action][0], self.ask_profile)
             self.execute_single_book(self.action_map[action][1], self.bid_profile)
 
-    def execute_single_book(self, action, profile):
+    def execute_single_book(self, action, profile: Profile):
         # if action changed, clear all previous orders
-        if profile["prev_action"] is not None and profile["prev_action"] != action:
-            for ref in profile["refs"]:
+        if profile.prev_action is not None and profile.prev_action != action:
+            for ref in profile.refs:
                 self.feed.delete_order(ref)
-                profile["remaining"] = 0
-        if profile["ask"]:
+                profile.submitted = 0
+        if profile.submitted == self.target_size:
+            return
+        if profile.ask:
             price = max(self.order_book.get_mid_price() + self.env.rspd.get(),
                         self.order_book.ask_book.get_quote())  # not to place inside the market
         else:
             price = min(self.order_book.get_mid_price() - self.env.rspd.get(),
                         self.order_book.bid_book.get_quote())  # not to place inside the market
-        self.feed.add_order(price, self.target_size - profile["remaining"], profile["ask"])
-        profile["prev_action"] = action
+        profile.refs.append(self.feed.add_order(price, self.target_size - profile.submitted, profile.ask))
+        profile.submitted = self.target_size
+        profile.prev_action = action
 
 
 class Simulation:
     def __init__(self, agent, filename, config):
-        self.feed = Feed(filename)
+        self.feed = Feed(filename, delay_lb=config.delay_lb, delay_ub=config.delay_ub)
         self.order_book = OrderBook()  # SimulationBook allow algo generated orders
         self.agent = agent
         self.config = config
@@ -133,8 +151,10 @@ class Simulation:
         """
         At the beginning of the day, Nasdaq will populate the whole book by sending "add" message
         """
-        while self.feed.has_next() and self.feed.peek().type[0] == 'A':
+        print("Build: start building book", end='', flush=True)
+        while self.feed.has_next() and self.feed.peek().timestamp < 342E11:
             self.order_book.process_message(self.feed.next())
+        print("\rBuild: finish building book")
 
     def init_features(self):
         # initialize features
@@ -176,15 +196,21 @@ class Simulation:
 
     def step(self, action):
         self.SOR.execute(action)
-        buy, executed = self.order_book.process_message(self.feed.next())
+        tmp = self.feed.next()
+        if tmp.ref == 11417733:
+            aaa = 1
+        buy, executed = self.order_book.process_message(tmp)
 
         # netting
-        if buy is not None:
+        if buy is not None and len(executed) > 0:
+            shares_to_add = 0
+            for order in executed:
+                shares_to_add += order[1]
+            self.SOR.update_submission(buy, shares_to_add)  # reduce submission by the same amount
             if buy:
                 self.open_buys.extend(executed)
             else:
                 self.open_sells.extend(executed)
-            shares_to_add = 0
             while len(self.open_buys) > 0 and len(self.open_sells) > 0:
                 if self.open_buys[0][1] >= self.open_sells[0][1]:
                     tmp, remain = self.open_sells.popleft(), self.open_buys[0]
@@ -192,10 +218,8 @@ class Simulation:
                 else:
                     tmp, remain = self.open_buys.popleft(), self.open_sells[0]
                     self.pnl += tmp[1] * (remain[0] - tmp[0])
-                shares_to_add += tmp[1]
                 remain[1] -= tmp[1]
                 if self.open_buys[0][1] == 0:  # >= condition is on open_buys side
                     self.open_buys.popleft()
             self.position += shares_to_add if buy else -shares_to_add
-
         return self.update_states(), 0

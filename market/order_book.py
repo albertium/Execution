@@ -29,7 +29,12 @@ class FormattedMessage:
         return self.__repr__()
 
     def __repr__(self):
-        return "type: %s\nref: %d\ntimestamp: %d" % (self.type, self.ref, self.timestamp)
+        if self.type[0] == 'A':
+            return "{type: %s\nref: %d\ntimestamp: %d\nprice: %d\nshares: %d}" % (self.type, self.ref, self.timestamp,
+                                                                                  self.price, self.shares)
+        elif self.type == 'E':
+            return "{type: %s\nref: %d\ntimestamp: %d\nshares: %d}" % (self.type, self.ref, self.timestamp, self.shares)
+        return "{type: %s\nref: %d\ntimestamp: %d}" % (self.type, self.ref, self.timestamp)
 
 
 class Order:
@@ -145,18 +150,20 @@ class Book:
         self.update_book()
         # if algo market order or the target order is not on the first level or execution is on the real front order
         # then we should walk the book starting from the front order
-        if ref < 0 \
+        if ref < 0 or ref not in self.pool \
                 or self.later_than(self.pool[ref].price, self.get_quote()) \
                 or ref == self.get_front_real_order().ref:
             executed = []
             prev_shares = shares
             while shares > 0:
                 tmp = self.get_front_order()
+                if tmp.ref == 11417733:
+                    aaa = 1
                 if tmp.shares <= shares:
                     self.remove(tmp.ref)
                     shares -= tmp.shares
                     self.update_volume(tmp.price, -tmp.shares)
-                    if tmp.ref != ref:  # the order would not be execute were it not for algo orders, should save ref no
+                    if tmp.ref != ref:  # the order would not be execute were it not for algo orders, save ref number
                         self.ref_pool[tmp.ref] = None  # use dict instead of set because it's faster
                 else:
                     tmp.shares -= shares
@@ -216,13 +223,13 @@ class OrderBook:
     def process_message(self, msg: FormattedMessage):
         price, shares = None, None
         if msg.type == 'AA':  # add Ask
-            self.add_ask(msg.ref, msg.price, msg.shares)
+            return self.add_ask(msg.ref, msg.price, msg.shares)
         if msg.type == 'AA2':  # add algo generated ask
-            self.add_ask(msg.ref, msg.price, msg.shares, False)
+            return self.add_ask(msg.ref, msg.price, msg.shares, False)
         elif msg.type == 'AB':  # ask bid
-            self.add_bid(msg.ref, msg.price, msg.shares)
+            return self.add_bid(msg.ref, msg.price, msg.shares)
         elif msg.type == 'AB2':  # ask algo generated bid
-            self.add_bid(msg.ref, msg.price, msg.shares, False)
+            return self.add_bid(msg.ref, msg.price, msg.shares, False)
         elif msg.type == 'E':
             return self.execute_order(msg.ref, msg.shares)
         elif msg.type == 'C':
@@ -239,14 +246,16 @@ class OrderBook:
     def add_bid(self, ref, price, shares, real=True):
         if price < self.ask_book.get_quote():
             self.bid_book.add_order(ref, price, shares, real)
+            return None, None
         else:
-            self.ask_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
+            return self.ask_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
 
     def add_ask(self, ref, price, shares, real=True):
         if price > self.bid_book.get_quote():
             self.ask_book.add_order(ref, price, shares, real)
+            return None, None
         else:
-            self.bid_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
+            return self.bid_book.execute_order(ref, shares)  # cross the book, this can happen when algo msg is delayed
 
     def execute_order(self, ref, shares):
         if ref in self.ask_book or ref == -1:
@@ -277,8 +286,8 @@ class OrderBook:
             self.ask_book.delete_order(ref)
         elif ref in self.bid_book:
             self.bid_book.delete_order(ref)
-        else:
-            raise RuntimeError("Deletion error - ref not exists")
+        # else:
+        #     raise RuntimeError("Deletion error - ref not exists")
 
     def replace_order(self, ref: int, new_ref:int, price: int, shares: int):
         if ref in self.ask_book:
