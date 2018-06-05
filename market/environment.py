@@ -115,7 +115,7 @@ class SmartOrderRouter:
 
     def execute_single_book(self, action, profile: Profile):
         # if action changed, clear all previous orders
-        if profile.prev_action is not None and profile.prev_action != action:
+        if profile.prev_action is not None and (profile.prev_action != action):
             for ref in profile.refs:
                 self.feed.delete_order(ref)
                 profile.submitted = 0
