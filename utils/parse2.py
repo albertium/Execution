@@ -1,5 +1,6 @@
 
 import struct
+import csv
 
 
 def parse_and_save(infile, outfile):
@@ -44,3 +45,28 @@ def parse_and_save(infile, outfile):
     with open(outfile, "w") as f:
         text = [",".join([str(elem) for elem in row]) for row in output]
         f.write("\n".join(text) + "\n")
+
+
+def preprocess_data(filename):
+    output = []
+    record = {}
+    with open(filename, "r") as f:
+        reader = csv.reader(f)
+        for msg in reader:
+            if msg[0] == 'A':
+                label = 'B' if msg[3] == '1' else 'A'
+                msg[0] += label
+                record[msg[1]] = label
+            if msg[0] == 'E' or msg[0] == 'X':
+                msg[0] += record[msg[1]]
+            if msg[0] == 'D':
+                msg[0] += record[msg[1]]
+                del record[msg[1]]
+            if msg[0] == 'U':
+                msg[0] += record[msg[1]]
+                record[msg[3]] = record[msg[1]]
+                del record[msg[1]]
+            output.append(msg)
+
+    with open(filename[:-4] + "-v2.csv", "w") as f:
+        f.write("\n".join(",".join(row) for row in output) + "\n")

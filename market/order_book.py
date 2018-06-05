@@ -14,33 +14,43 @@ class OrderBook:
         return self.ask_book.get_quote() - self.bid_book.get_quote()
 
     def get_mid_price(self):
-        return (self.ask_book.get_quote() + self.bid_book.get_quote()) / 2
+        return int((self.ask_book.get_quote() + self.bid_book.get_quote()) / 2)
 
     def process_message(self, msg: FormattedMessage):
         price, shares = None, None
         if msg.type == 'AA':  # add Ask
-            return self.add_ask(msg.ref, msg.price, msg.shares)
+            return self.add_ask(msg.ref, msg.price, msg.shares, real=True)
         if msg.type == 'AA2':  # add algo generated ask
-            return self.add_ask(msg.ref, msg.price, msg.shares, False)
+            return self.add_ask(msg.ref, msg.price, msg.shares, real=False)
         elif msg.type == 'AB':  # ask bid
-            return self.add_bid(msg.ref, msg.price, msg.shares)
+            return self.add_bid(msg.ref, msg.price, msg.shares, real=True)
         elif msg.type == 'AB2':  # ask algo generated bid
-            return self.add_bid(msg.ref, msg.price, msg.shares, False)
-        elif msg.type == 'E' or msg.type == 'C':  # execution or execution with price
-            return self.execute_order(msg.ref, msg.shares)
+            return self.add_bid(msg.ref, msg.price, msg.shares, real=False)
+        elif msg.type == 'EA':  # execution or execution with price
+            return self.ask_book.execute_order(msg.ref, msg.shares, True)
+        elif msg.type == 'EB':  # execution or execution with price
+            return self.bid_book.execute_order(msg.ref, msg.shares, False)
         elif msg.type == "MB":  # market buy
             return self.bid_book.execute_market_market(msg.ref, msg.shares)
         elif msg.type == "MS":  # market sell
             return self.ask_book.execute_market_market(msg.ref, msg.shares)
-        elif msg.type == 'X':  # cancel
-            self.cancel_order(msg.ref, msg.shares)
-        elif msg.type == 'D':  # delete
-            self.delete_order(msg.ref)
-        elif msg.type == 'U':  # update
-            self.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+        elif msg.type == 'XA':  # cancel
+            self.ask_book.cancel_order(msg.ref, msg.shares)
+        elif msg.type == 'XB':  # cancel
+            self.bid_book.cancel_order(msg.ref, msg.shares)
+        elif msg.type == 'DA':  # delete
+            self.ask_book.delete_order(msg.ref)
+        elif msg.type == 'DB':  # delete
+            self.bid_book.delete_order(msg.ref)
+        elif msg.type == 'UA':  # update
+            self.ask_book.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+        elif msg.type == 'UB':  # update
+            self.bid_book.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+        else:
+            print("Unrecognized message type: ", msg.type)
         return price, shares
 
-    def add_bid(self, ref, price, shares, real=True):
+    def add_bid(self, ref, price, shares, real):
         if price < self.ask_book.get_quote():
             self.bid_book.add_order(ref, price, shares, real)
             return []
@@ -48,7 +58,7 @@ class OrderBook:
             # cross the book, this can happen with both real (when algo order is added) and algo order
             return self.ask_book.execute_market_market(ref, shares)
 
-    def add_ask(self, ref, price, shares, real=True):
+    def add_ask(self, ref, price, shares, real):
         if price > self.bid_book.get_quote():
             self.ask_book.add_order(ref, price, shares, real)
             return []
@@ -62,27 +72,3 @@ class OrderBook:
             return self.bid_book.execute_order(ref, shares, False)
         else:
             raise RuntimeError("Execution error - ref not exists")
-
-    def cancel_order(self, ref: int, shares: int):
-        if ref in self.ask_book:
-            self.ask_book.cancel_order(ref, shares)
-        elif ref in self.bid_book:
-            self.bid_book.cancel_order(ref, shares)
-        else:
-            raise RuntimeError("Cancellation error - ref not exists")
-
-    def delete_order(self, ref: int):
-        if ref in self.ask_book:
-            self.ask_book.delete_order(ref)
-        elif ref in self.bid_book:
-            self.bid_book.delete_order(ref)
-        # else:
-        #     raise RuntimeError("Deletion error - ref not exists")
-
-    def replace_order(self, ref: int, new_ref:int, price: int, shares: int):
-        if ref in self.ask_book:
-            self.ask_book.replace_order(ref, new_ref, price, shares)
-        elif ref in self.bid_book:
-            self.bid_book.replace_order(ref, new_ref, price, shares)
-        else:
-            raise RuntimeError("Replacement error - ref not exists")

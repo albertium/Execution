@@ -8,7 +8,7 @@ from market.order_book import OrderBook, FormattedMessage
 class TestOrderBook(unittest.TestCase):
     def test_aapl_run(self):
         # use AAPL data for testing
-        filename = "data/AAPL-20170102.csv"
+        filename = "data/AAPL-20170102-v2.csv"
         print("Checking %s:" % filename)
         with open(filename, "r") as f:
             reader = csv.reader(f)

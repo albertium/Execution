@@ -8,16 +8,12 @@ class FormattedMessage:
             self.type = raw[0]
             self.ref = int(raw[1])
             self.timestamp = int(raw[2])
-            if self.type == 'A':
-                self.type += 'B' if raw[3] == '1' else 'A'
+            if self.type[0] == 'A':
                 self.price = int(raw[4])
                 self.shares = int(raw[5])
-            elif self.type == 'E' or self.type == 'X':
+            elif self.type[0] == 'E' or self.type[0] == 'X':
                 self.shares = int(raw[5])
-            elif self.type == 'C':
-                self.price = int(raw[4])
-                self.shares = int(raw[5])
-            elif self.type == 'U':
+            elif self.type[0] == 'U':
                 self.new_ref = int(raw[3])
                 self.price = int(raw[4])
                 self.shares = int(raw[5])
