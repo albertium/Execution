@@ -78,50 +78,25 @@ class Book:
         self.update_volume(price, shares)
 
     def execute_order(self, ref, shares, ask=True):
-        # we assume that when there is algo market order, there will be NO algo limit order on the same book
-        # we also assume we will never run out of limit orders
-        self.update_book()
-        # if algo market order or the target order is not on the first level or execution is on the real front order
-        # then we should walk the book starting from the front order
-        if ref < 0 or ref not in self.pool \
-                or self.later_than(self.pool[ref].price, self.get_quote()) \
-                or ref == self.get_front_real_order().ref:
-            executed = []
-            prev_shares = shares
-            while shares > 0:
-                tmp = self.get_front_order()
-                if tmp.shares <= shares:
-                    self.remove(tmp.ref)
-                    shares -= tmp.shares
-                    self.update_volume(tmp.price, -tmp.shares)
-                    if tmp.ref != ref:  # the order would not be execute were it not for algo orders, save ref number
-                        self.ref_pool[tmp.ref] = None  # use dict instead of set because it's faster
-                else:
-                    tmp.shares -= shares
-                    self.update_volume(tmp.price, -shares)
-                    shares = 0
-                self.update_book()
-                if ref < 0 or not tmp.real:  # report algo order execution for market or limit
-                    executed.append(ExecutionInfo(ref, tmp.price, prev_shares - shares))
-                elif not tmp.real:
-                    executed.append(ExecutionInfo(tmp.ref, tmp.price, prev_shares - shares))
-
-                prev_shares = shares
-            self.ref_pool.pop(ref, None)  # it's possible that ref is a ref_pool order, so remove it after it's used
-            return ask ^ (ref > 0), executed
-        else:
-            tmp = self.pool[ref]
-            tmp.shares -= shares
-            if tmp.shares < 0:
-                raise RuntimeError("Special execution handling failed")
-            if tmp.shares == 0:
+        # we assume that we never run out of limit orders
+        # if ref is on the quote level and not the real front order, execute as it is
+        # the remaining or the other cases are executed as incoming market order
+        tmp = self.pool.get(ref, None)
+        if tmp is not None and tmp.price == self.get_quote() and ref != self.get_front_real_order().ref:
+            if tmp.shares > shares:
+                tmp.shares -= shares
+                self.update_volume(tmp.price, -shares)
+                return [] # here we must have bid ref == ask ref and ref is real
+            else:
+                shares -= tmp.shares
+                self.update_volume(tmp.price, -tmp.shares)
                 self.remove(ref)
-            self.update_book()
-            self.update_volume(tmp.price, -shares)
-            return None, []
+                self.update_book()
+        return self.execute_market_market(ref, shares)
 
     def execute_market_market(self, ref, shares):
         # for message execution and market order execution
+        # the function allows algo order on opposite sides
         executed = []
         while shares > 0:
             tmp = self.get_front_order()
@@ -132,7 +107,7 @@ class Book:
                 self.update_book()
                 if not tmp.real:  # we assume algo order shouldn't appear in both sides at the same time
                     executed.append(ExecutionInfo(tmp.ref, tmp.price, tmp.shares))
-                elif ref < 0:
+                if ref < 0:
                     executed.append(ExecutionInfo(ref, tmp.price, tmp.shares))
                 if tmp.ref == ref:
                     self.ref_pool[tmp.ref] = None  # use dict instead of set because it's faster

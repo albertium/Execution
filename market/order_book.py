@@ -26,7 +26,7 @@ class OrderBook:
             return self.add_bid(msg.ref, msg.price, msg.shares)
         elif msg.type == 'AB2':  # ask algo generated bid
             return self.add_bid(msg.ref, msg.price, msg.shares, False)
-        elif msg.type == 'E' or msg.type == 'C':
+        elif msg.type == 'E' or msg.type == 'C':  # execution or execution with price
             return self.execute_order(msg.ref, msg.shares)
         elif msg.type == "MB":  # market buy
             return self.bid_book.execute_market_market(msg.ref, msg.shares)
@@ -43,7 +43,7 @@ class OrderBook:
     def add_bid(self, ref, price, shares, real=True):
         if price < self.ask_book.get_quote():
             self.bid_book.add_order(ref, price, shares, real)
-            return None, None
+            return []
         else:
             # cross the book, this can happen with both real (when algo order is added) and algo order
             return self.ask_book.execute_market_market(ref, shares)
@@ -51,7 +51,7 @@ class OrderBook:
     def add_ask(self, ref, price, shares, real=True):
         if price > self.bid_book.get_quote():
             self.ask_book.add_order(ref, price, shares, real)
-            return None, None
+            return []
         else:
             return self.bid_book.execute_market_market(ref, shares)
 
