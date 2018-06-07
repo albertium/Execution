@@ -16,6 +16,12 @@ class OrderBook:
     def get_mid_price(self):
         return int((self.ask_book.get_quote() + self.bid_book.get_quote()) / 2)
 
+    def get_ask(self):
+        return self.ask_book.get_quote()
+
+    def get_bid(self):
+        return self.bid_book.get_quote()
+
     def process_message(self, msg: FormattedMessage):
         price, shares = None, None
         if msg.type == 'AA':  # add Ask
@@ -27,13 +33,19 @@ class OrderBook:
         elif msg.type == 'AB2':  # ask algo generated bid
             return self.add_bid(msg.ref, msg.price, msg.shares, real=False)
         elif msg.type == 'EA':  # execution or execution with price
-            return self.ask_book.execute_order(msg.ref, msg.shares, True)
+            executed = self.ask_book.execute_order(msg.ref, msg.shares)
+            if len(executed) > 0:
+                return 'S', executed
+            return None, executed
         elif msg.type == 'EB':  # execution or execution with price
-            return self.bid_book.execute_order(msg.ref, msg.shares, False)
+            executed = self.bid_book.execute_order(msg.ref, msg.shares)
+            if len(executed) > 0:
+                return 'B', executed
+            return None, executed
         elif msg.type == "MB":  # market buy
-            return self.bid_book.execute_market_market(msg.ref, msg.shares)
+            return 'B', self.bid_book.execute_market_market(msg.ref, msg.shares)
         elif msg.type == "MS":  # market sell
-            return self.ask_book.execute_market_market(msg.ref, msg.shares)
+            return 'S', self.ask_book.execute_market_market(msg.ref, msg.shares)
         elif msg.type == 'XA':  # cancel
             self.ask_book.cancel_order(msg.ref, msg.shares)
         elif msg.type == 'XB':  # cancel
@@ -53,22 +65,18 @@ class OrderBook:
     def add_bid(self, ref, price, shares, real):
         if price < self.ask_book.get_quote():
             self.bid_book.add_order(ref, price, shares, real)
-            return []
         else:
             # cross the book, this can happen with both real (when algo order is added) and algo order
-            return self.ask_book.execute_market_market(ref, shares)
+            executed = self.ask_book.execute_market_market(ref, shares)
+            if len(executed) > 0:
+                return 'S' if real else 'B', executed
+        return None, []
 
     def add_ask(self, ref, price, shares, real):
         if price > self.bid_book.get_quote():
             self.ask_book.add_order(ref, price, shares, real)
-            return []
         else:
-            return self.bid_book.execute_market_market(ref, shares)
-
-    def execute_order(self, ref, shares):
-        if ref in self.ask_book or ref == -1:
-            return self.ask_book.execute_order(ref, shares)
-        elif ref in self.bid_book or ref == -2:
-            return self.bid_book.execute_order(ref, shares, False)
-        else:
-            raise RuntimeError("Execution error - ref not exists")
+            executed = self.bid_book.execute_market_market(ref, shares)
+            if len(executed) > 0:
+                return 'B' if real else 'S', executed
+        return None, []

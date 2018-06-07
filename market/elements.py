@@ -25,7 +25,7 @@ class FormattedMessage:
         if self.type[0] == 'A':
             return "{type: %s\nref: %d\ntimestamp: %d\nprice: %d\nshares: %d}" % (self.type, self.ref, self.timestamp,
                                                                                   self.price, self.shares)
-        elif self.type == 'E':
+        elif self.type[0] == 'E':
             return "{type: %s\nref: %d\ntimestamp: %d\nshares: %d}" % (self.type, self.ref, self.timestamp, self.shares)
         return "{type: %s\nref: %d\ntimestamp: %d}" % (self.type, self.ref, self.timestamp)
 
@@ -38,12 +38,25 @@ class Order:
         self.valid = True
         self.real = real  # the order is user generated or real data
 
+    def __repr__(self):
+        return "{ref: %s\nprice: %d\nshares: %d\nvalid: %d\nreal: %d}" % (self.ref, self.price, self.shares, self.valid,
+                                                                          self.real)
+
+    def __str__(self):
+        return self.__repr__()
+
 
 class ExecutionInfo:
     def __init__(self, ref, price, shares):
         self.ref = ref
         self.price = price
         self.shares = shares
+
+    def __repr__(self):
+        return "{ref: %s\nprice: %d\nshares: %d}" % (self.ref, self.price, self.shares)
+
+    def __str__(self):
+        return self.__repr__()
 
 
 class Level:

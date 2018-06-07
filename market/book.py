@@ -14,11 +14,10 @@ class Book:
         self.later_than = comparators[1]
         self.pool = {}  # record orders for update or deletion
         self.level_pool = {}  # store leveals
-        self.ref_pool = {}
         self.volumes = OrderedDict()
 
     def __contains__(self, item):
-        return item in self.pool or item in self.ref_pool
+        return item in self.pool
 
     def get_front_order(self) -> Order:
         return self.level_pool[self.levels[0]][0]
@@ -77,7 +76,7 @@ class Book:
             self.level_pool[price].append(order)
         self.update_volume(price, shares)
 
-    def execute_order(self, ref, shares, ask=True):
+    def execute_order(self, ref, shares):
         # we assume that we never run out of limit orders
         # if ref is on the quote level and not the real front order, execute as it is
         # the remaining or the other cases are executed as incoming market order
@@ -105,35 +104,44 @@ class Book:
                 shares -= tmp.shares
                 self.update_volume(tmp.price, -tmp.shares)
                 self.update_book()
-                if not tmp.real:  # we assume algo order shouldn't appear in both sides at the same time
+                if not tmp.real:
                     executed.append(ExecutionInfo(tmp.ref, tmp.price, tmp.shares))
                 if ref < 0:
                     executed.append(ExecutionInfo(ref, tmp.price, tmp.shares))
-                if tmp.ref == ref:
-                    self.ref_pool[tmp.ref] = None  # use dict instead of set because it's faster
             else:
                 tmp.shares -= shares
                 self.update_volume(tmp.price, -shares)
-                shares = 0
-                if ref < 0 or not tmp.real:
+                if not tmp.real:
                     executed.append(ExecutionInfo(tmp.ref, tmp.price, shares))
-                elif ref < 0:
+                if ref < 0:
                     executed.append(ExecutionInfo(ref, tmp.price, shares))
+                shares = 0
         return executed
 
     def cancel_order(self, ref, shares):
-        tmp = self.pool[ref]
-        if not tmp.valid or tmp.shares < shares:
+        tmp = self.pool.get(ref, None)
+        if tmp is None:
+            return
+        if not tmp.valid:
             raise RuntimeError("Order cancellation error - order specs mismatch")
-        tmp.shares -= shares
-        self.update_volume(tmp.price, -shares)
+        if tmp.shares <= shares:
+            self.remove(ref)
+            self.update_volume(tmp.price, -tmp.shares)
+            self.update_book()
+        else:
+            tmp.shares -= shares
+            self.update_volume(tmp.price, -shares)
 
     def delete_order(self, ref):
-        tmp = self.pool[ref]
+        tmp = self.pool.get(ref, None)
+        if tmp is None:
+            return
         self.update_volume(tmp.price, -tmp.shares)
         self.remove(ref)
         self.update_book()
 
     def replace_order(self, ref, new_ref, price, shares):
+        if ref not in self.pool:
+            return
         self.delete_order(ref)
         self.add_order(new_ref, price, shares)
