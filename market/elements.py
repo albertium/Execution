@@ -23,11 +23,11 @@ class FormattedMessage:
 
     def __repr__(self):
         if self.type[0] == 'A':
-            return "{type: %s\nref: %d\ntimestamp: %d\nprice: %d\nshares: %d}" % (self.type, self.ref, self.timestamp,
+            return "{type: %s, ref: %d, timestamp: %d, price: %d, shares: %d}" % (self.type, self.ref, self.timestamp,
                                                                                   self.price, self.shares)
         elif self.type[0] == 'E':
-            return "{type: %s\nref: %d\ntimestamp: %d\nshares: %d}" % (self.type, self.ref, self.timestamp, self.shares)
-        return "{type: %s\nref: %d\ntimestamp: %d}" % (self.type, self.ref, self.timestamp)
+            return "{type: %s, ref: %d, timestamp: %d, shares: %d}" % (self.type, self.ref, self.timestamp, self.shares)
+        return "{type: %s, ref: %d, timestamp: %d}" % (self.type, self.ref, self.timestamp)
 
 
 class Order:
@@ -39,7 +39,7 @@ class Order:
         self.real = real  # the order is user generated or real data
 
     def __repr__(self):
-        return "{ref: %s\nprice: %d\nshares: %d\nvalid: %d\nreal: %d}" % (self.ref, self.price, self.shares, self.valid,
+        return "{ref: %s, price: %d, shares: %d, valid: %d, real: %d}" % (self.ref, self.price, self.shares, self.valid,
                                                                           self.real)
 
     def __str__(self):
@@ -53,7 +53,7 @@ class ExecutionInfo:
         self.shares = shares
 
     def __repr__(self):
-        return "{ref: %s\nprice: %d\nshares: %d}" % (self.ref, self.price, self.shares)
+        return "{ref: %s, price: %d, shares: %d}" % (self.ref, self.price, self.shares)
 
     def __str__(self):
         return self.__repr__()

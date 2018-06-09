@@ -19,8 +19,20 @@ class OrderBook:
     def get_ask(self):
         return self.ask_book.get_quote()
 
+    def get_real_ask(self, start=0):
+        for level in self.ask_book.levels[start:]:
+            for order in self.ask_book.level_pool[level]:
+                if order.real:
+                    return order.price
+
     def get_bid(self):
         return self.bid_book.get_quote()
+
+    def get_real_bid(self, start=0):
+        for level in self.bid_book.levels[start:]:
+            for order in self.bid_book.level_pool[level]:
+                if order.real:
+                    return order.price
 
     def process_message(self, msg: FormattedMessage):
         price, shares = None, None
@@ -55,9 +67,13 @@ class OrderBook:
         elif msg.type == 'DB':  # delete
             self.bid_book.delete_order(msg.ref)
         elif msg.type == 'UA':  # update
-            self.ask_book.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+            if msg.ref in self.ask_book:
+                self.ask_book.delete_order(msg.ref)
+                self.add_ask(msg.new_ref, msg.price, msg.shares, True)
         elif msg.type == 'UB':  # update
-            self.bid_book.replace_order(msg.ref, msg.new_ref, msg.price, msg.shares)
+            if msg.ref in self.bid_book:
+                self.bid_book.delete_order(msg.ref)
+                self.add_bid(msg.new_ref, msg.price, msg.shares, True)
         else:
             print("Unrecognized message type: ", msg.type)
         return price, shares

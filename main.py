@@ -1,5 +1,5 @@
 
-from market.environment import Simulator
+from market.simulator import Simulator
 from agent.agent import RandomAgent
 from config import config
 

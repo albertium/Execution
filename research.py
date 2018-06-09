@@ -1,5 +1,5 @@
 
-from market.environment import Feed
+from market.simulator import Feed
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt

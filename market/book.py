@@ -1,5 +1,5 @@
 
-from sortedcollections import SortedList
+from sortedcollections import SortedListWithKey
 from collections import OrderedDict, deque
 from market.elements import Order, ExecutionInfo
 
@@ -9,7 +9,7 @@ class Book:
     For order modification functions, we assume that the ref has been checked in the whole book level
     """
     def __init__(self, comparators):
-        self.levels = SortedList(key=comparators[0])
+        self.levels = SortedListWithKey(key=comparators[0])
         self.default_quote = 100000000 if comparators[0](1) == 1 else 0  # quote before book is initialized
         self.later_than = comparators[1]
         self.pool = {}  # record orders for update or deletion
