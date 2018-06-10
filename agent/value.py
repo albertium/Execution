@@ -27,17 +27,17 @@ class Tiling(ValueFunction):
     def __init__(self, state_specs: List[StateSpec], offsets, num_tilings):
         super(Tiling, self).__init__(state_specs)
         self.values = np.zeros([spec.num_of_tiles + 1 for spec in state_specs])  # for tiling with offset, we need n + 1 tiles
-        self.state_specs = []
-        for spec, offset in zip(state_specs, offsets):
-            tile_width = (spec.ub - spec.lb) / spec.num_of_tiles
-            self.state_specs.append(
-                TileSpec(lb=spec.lb,
-                         ub=spec.ub,
-                         start=spec.lb - tile_width * ((num_tilings - offset) % num_tilings) / num_tilings,
-                         tile_width=tile_width,
-                         num_of_tiles=spec.num_of_tiles)
-            )
         self.num_states = len(state_specs)
+        self.starts = [0] * self.num_states
+        self.tile_widths = [0] * self.num_states
+        self.lbs = np.zeros(self.num_states)
+        self.ubs = np.zeros(self.num_states)
+        for i in range(self.num_states):
+            spec = state_specs[i]
+            self.tile_widths[i] = (spec.ub - spec.lb) / spec.num_of_tiles
+            self.starts[i] = spec.lb - self.tile_widths[i] * ((num_tilings - offsets[i]) % num_tilings) / num_tilings
+            self.lbs[i] = spec.lb
+            self.ubs[i] = spec.ub
 
     def get_value(self, state: Iterable):
         return self.values[self.get_indices(state)]
@@ -46,15 +46,12 @@ class Tiling(ValueFunction):
         self.values[self.get_indices(state)] += value
 
     def get_indices(self, state: Iterable):
+        # return tuple(((np.maximum(np.minimum(state, self.ubs), self.lbs) - self.starts) / self.tile_widths).astype(int))
+        # return tuple(((state - self.starts) / self.tile_widths).astype(int))
+        # return int((state[0] - self.starts[0]) / self.tile_widths[0])
         indices = []
-        for spec, val in zip(self.state_specs, state):
-            # this is a bit faster than applying min and max
-            if val < spec.lb:
-                val = spec.lb
-            elif val >= spec.ub:
-                val = spec.ub
-            idx = int((val - spec.start) / spec.tile_width)
-            indices.append(idx)
+        for val, start, width in zip(state, self.starts, self.tile_widths):
+            indices.append(int((val - start) / width))
         return tuple(indices)
 
 

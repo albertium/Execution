@@ -3,6 +3,9 @@ import unittest
 import csv
 import time
 from market.order_book import OrderBook, FormattedMessage
+from utils.sutton import MonteCarloTester, TilingsValueFunction
+from agent.value import TileCodingValueFunction, StateSpec
+import numpy as np
 
 
 class TestOrderBook(unittest.TestCase):
@@ -26,6 +29,15 @@ class TestOrderBook(unittest.TestCase):
         self.assertEqual(len(order_book.bid_book.level_pool), 0)
         self.assertEqual(len(order_book.ask_book.volumes), 1876)
         self.assertEqual(len(order_book.bid_book.volumes), 3175)
+
+
+class TestTilingValueFunction(unittest.TestCase):
+    def test_monte_carlo(self):
+        funcs = [TileCodingValueFunction([StateSpec(lb=0, ub=1000, num_of_tiles=5)], 50),
+                 TilingsValueFunction(50, 200, 4)]
+        tester = MonteCarloTester(funcs, 1001)
+        tester.train(300)
+        self.assertLessEqual(np.mean(np.abs(tester.errs[0][100:] - tester.errs[1][100:])), 0.0002)
 
 
 if __name__ == "__main__":
